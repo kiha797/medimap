@@ -88,13 +88,18 @@ export async function POST(request:Request){try{
   try{let s=JSON.parse(await setting('sync')||'null');
    if(s?.done&&p.runId&&s.runId===p.runId)return json(s);
    const fresh=!s||s.done;
-   if(fresh)s={generation:crypto.randomUUID(),runId:String(p.runId||''),kind:'약국',page:1,pageSize:100,received:0,total:null,done:false,startedAt:new Date().toISOString()};
-   // Older checkpoints used 1,000-row pages. Preserve committed rows and resume with 100-row pages.
-   if(s.pageSize!==100){if(s.received%100!==0)throw new Error('이전 진행 위치를 변환할 수 없습니다. 수집 상태를 초기화해 주세요.');s.pageSize=100;s.page=Math.floor(s.received/100)+1;}
+   if(fresh)s={generation:crypto.randomUUID(),runId:String(p.runId||''),kind:'약국',page:1,pageSize:1000,received:0,total:null,done:false,startedAt:new Date().toISOString()};
+   // Resume earlier 100-row checkpoints within the corresponding 1,000-row page.
+   if(!Number.isInteger(s.received)||s.received<0)throw new Error('저장된 수집 진행 위치를 확인할 수 없습니다.');
+   const skip=s.received%1000;s.pageSize=1000;s.page=Math.floor(s.received/1000)+1;
    s.runId=String(p.runId||s.runId||'');
-   const result=await apiPage(s.kind,s.page,k,'',100);if(s.total!==null&&s.total!==result.total)throw new Error('갱신 중 공공 API의 전체 건수가 변경되었습니다. 수집 상태를 초기화한 뒤 다시 시작해 주세요.');
-   const items=result.items.map((x:any)=>normalizeItem(x,s.kind));if(items.length>100)throw new Error('공공 API가 요청한 페이지 크기를 초과했습니다.');if(items.some((x:any)=>!x.id||!x.name))throw new Error('기관 식별번호가 누락된 데이터가 있어 갱신을 완료할 수 없습니다.');
-   const statements=[];for(let i=0;i<items.length;i+=6){const group=items.slice(i,i+6);statements.push(db().prepare(`INSERT OR REPLACE INTO institutions(generation,${cols.join(',')}) VALUES ${group.map(()=> '('+Array(15).fill('?').join(',')+')').join(',')}`).bind(...group.flatMap((x:any)=>[s.generation,...cols.map(c=>x[c])])));}
+   const result=await apiPage(s.kind,s.page,k,'',1000);if(s.total!==null&&s.total!==result.total)throw new Error('갱신 중 공공 API의 전체 건수가 변경되었습니다. 수집 상태를 초기화한 뒤 다시 시작해 주세요.');
+   if(result.items.length>1000)throw new Error('공공 API가 요청한 페이지 크기를 초과했습니다.');
+   if(result.items.length!==Math.min(1000,result.total-(s.page-1)*1000))throw new Error('공공 API에서 일부 기관이 누락되었습니다. 마지막 저장 위치에서 다시 시도해 주세요.');
+   const items=result.items.slice(skip).map((x:any)=>normalizeItem(x,s.kind));if(items.some((x:any)=>!x.id||!x.name))throw new Error('기관 식별번호가 누락된 데이터가 있어 갱신을 완료할 수 없습니다.');
+   // JSON table expansion keeps bind parameters and statement counts small at 1,000 rows.
+   // All inserts and the checkpoint are still committed together in one atomic batch.
+   const statements=[];for(let i=0;i<items.length;i+=100){const group=items.slice(i,i+100);statements.push(db().prepare(`INSERT OR REPLACE INTO institutions(generation,${cols.join(',')}) SELECT ?,${cols.map((_,j)=>`json_extract(value,'$[${j}]')`).join(',')} FROM json_each(?)`).bind(s.generation,JSON.stringify(group.map((x:any)=>cols.map(c=>x[c])))));}
    s.total=result.total;s.received+=items.length;s.page++;s.updatedAt=new Date().toISOString();
    if(s.received>=s.total){if(s.received!==s.total)throw new Error('기관 건수 검증에 실패했습니다.');if(s.kind==='약국'){s.pharmacyTotal=s.total;s.kind='병·의원';s.page=1;s.received=0;s.total=null;}else{
     s.done=true;
