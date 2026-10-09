@@ -9,4 +9,4 @@ Workers Builds에서 다음 명령을 설정합니다.
 
 `medimap-db`는 기존 Sites 데이터베이스와 별도입니다. 이 저장소에는 실제 API 인증키, 전국 기관 데이터, 거래처 데이터가 포함되지 않습니다. `HIRA_SERVICE_KEY`는 Cloudflare Worker의 암호화된 환경변수(Secret)로 등록합니다.
 
-현재 관리자 기능은 Sites가 제공하는 ChatGPT 로그인에 연결되어 있습니다. 일반 Cloudflare Worker에서는 이 로그인이 제공되지 않으므로, 거래처 업로드 및 관리자 데이터 연결 기능을 사용하려면 별도의 관리자 인증을 연동해야 합니다. 배포 설정 변경 자체는 인증 기능이나 기존 데이터를 이전하지 않습니다.
+거래처 업로드와 데이터 관리는 작업 비밀번호로 확인합니다. Cloudflare Worker의 설정 → 변수 및 비밀에서 `ADMIN_PASSWORD`를 Secret으로 등록하세요. 비밀번호 원문은 GitHub 소스에 포함하지 않습니다.
