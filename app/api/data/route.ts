@@ -13,9 +13,9 @@ import {canManage} from '../../../lib/access';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
 const cols=['id','name','kind','category','sido','sigungu','dong','address','phone','lat','lng','name_norm','address_norm','phone_norm'];
 async function key(){return (env as any).HIRA_SERVICE_KEY||await setting('api_key');}
-async function apiPage(kind:string,page:number,k:string,department=''){
+async function apiPage(kind:string,page:number,k:string,department='',pageSize=1000){
  const service=kind==='약국'?'pharmacyInfoService/getParmacyBasisList':'hospInfoServicev2/getHospBasisList';
- const url=new URL('https://apis.data.go.kr/B551182/'+service);let decoded=k;try{decoded=decodeURIComponent(k);}catch{}url.searchParams.set('ServiceKey',decoded);url.searchParams.set('pageNo',String(page));url.searchParams.set('numOfRows','1000');if(department)url.searchParams.set('dgsbjtCd',department);
+ const url=new URL('https://apis.data.go.kr/B551182/'+service);let decoded=k;try{decoded=decodeURIComponent(k);}catch{}url.searchParams.set('ServiceKey',decoded);url.searchParams.set('pageNo',String(page));url.searchParams.set('numOfRows',String(pageSize));if(department)url.searchParams.set('dgsbjtCd',department);
  const r=await fetch(url,{signal:AbortSignal.timeout(25000)});if(!r.ok)throw new Error('공공 API 응답 오류 ('+r.status+'). 활용승인과 서비스 이용 권한을 확인해 주세요.');
  const raw=await r.text();const parsed=new XMLParser({parseTagValue:false}).parse(raw);const response=parsed.response;if(!response||String(response.header?.resultCode)!=='00')throw new Error('공공 API 연결 실패. 인증키, 병원·약국 두 서비스의 활용승인, 일일 호출 한도를 확인해 주세요.');
  const total=Number(response.body?.totalCount);if(!Number.isFinite(total))throw new Error('공공 API 전체 건수를 확인할 수 없습니다.');let items=response.body?.items?.item||[];if(!Array.isArray(items))items=[items];return {total,items};
@@ -58,17 +58,29 @@ export async function POST(request:Request){try{
  if(p.action==='sync'){
   const k=await key();if(!k)return json({error:'공공데이터포털에서 병원정보서비스와 약국정보서비스 활용신청 후 인증키를 등록해 주세요.'},400);
   const now=Date.now();const lock=await db().prepare("INSERT INTO settings(key,value) VALUES('sync_lock',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(settings.value AS INTEGER)<?").bind(String(now+60000),now).run();if(lock.meta.changes!==1)return json({error:'다른 창에서 갱신 중입니다. 잠시 후 다시 시도해 주세요.'},409);
-  try{let s=JSON.parse(await setting('sync')||'null');if(!s||s.done)s={generation:crypto.randomUUID(),kind:'약국',page:1,received:0,total:null,done:false,startedAt:new Date().toISOString()};
-   const active=await setting('active_generation');await db().prepare('DELETE FROM institutions WHERE (generation,id) IN (SELECT generation,id FROM institutions WHERE generation NOT IN (?,?) LIMIT 3000)').bind(active,s.generation).run();
-   const result=await apiPage(s.kind,s.page,k);if(s.total!==null&&s.total!==result.total)throw new Error('갱신 중 공공 API의 전체 건수가 변경되었습니다. 다음 갱신을 다시 시작해 주세요.');
-   const items=result.items.map((x:any)=>normalizeItem(x,s.kind));if(items.some((x:any)=>!x.id||!x.name))throw new Error('기관 식별번호가 누락된 데이터가 있어 갱신을 완료할 수 없습니다.');
-   const statements=[];for(let i=0;i<items.length;i+=6){const group=items.slice(i,i+6);statements.push(db().prepare(`INSERT OR REPLACE INTO institutions(generation,${cols.join(',')}) VALUES ${group.map(()=> '('+Array(15).fill('?').join(',')+')').join(',')}`).bind(...group.flatMap((x:any)=>[s.generation,...cols.map(c=>x[c])])));}await batch(statements);
-   s.total=result.total;s.received+=items.length;s.page++;
+  try{let s=JSON.parse(await setting('sync')||'null');
+   if(s?.done&&p.runId&&s.runId===p.runId)return json(s);
+   const fresh=!s||s.done;
+   if(fresh)s={generation:crypto.randomUUID(),runId:String(p.runId||''),kind:'약국',page:1,pageSize:100,received:0,total:null,done:false,startedAt:new Date().toISOString()};
+   // Older checkpoints used 1,000-row pages. Preserve committed rows and resume with 100-row pages.
+   if(s.pageSize!==100){if(s.received%100!==0)throw new Error('이전 진행 위치를 변환할 수 없습니다. 수집 상태를 초기화해 주세요.');s.pageSize=100;s.page=Math.floor(s.received/100)+1;}
+   s.runId=String(p.runId||s.runId||'');
+   const result=await apiPage(s.kind,s.page,k,'',100);if(s.total!==null&&s.total!==result.total)throw new Error('갱신 중 공공 API의 전체 건수가 변경되었습니다. 수집 상태를 초기화한 뒤 다시 시작해 주세요.');
+   const items=result.items.map((x:any)=>normalizeItem(x,s.kind));if(items.length>100)throw new Error('공공 API가 요청한 페이지 크기를 초과했습니다.');if(items.some((x:any)=>!x.id||!x.name))throw new Error('기관 식별번호가 누락된 데이터가 있어 갱신을 완료할 수 없습니다.');
+   const statements=[];for(let i=0;i<items.length;i+=6){const group=items.slice(i,i+6);statements.push(db().prepare(`INSERT OR REPLACE INTO institutions(generation,${cols.join(',')}) VALUES ${group.map(()=> '('+Array(15).fill('?').join(',')+')').join(',')}`).bind(...group.flatMap((x:any)=>[s.generation,...cols.map(c=>x[c])])));}
+   s.total=result.total;s.received+=items.length;s.page++;s.updatedAt=new Date().toISOString();
    if(s.received>=s.total){if(s.received!==s.total)throw new Error('기관 건수 검증에 실패했습니다.');if(s.kind==='약국'){s.pharmacyTotal=s.total;s.kind='병·의원';s.page=1;s.received=0;s.total=null;}else{
-    const check=await db().prepare('SELECT COUNT(*) n FROM institutions WHERE generation=?').bind(s.generation).first<{n:number}>();if(check?.n!==s.pharmacyTotal+s.total)throw new Error('기관 중복 또는 누락이 확인되었습니다. 다음 갱신을 다시 시작해 주세요.');
-    s.done=true;const stamp=new Date().toISOString();await db().batch([db().prepare("INSERT INTO settings(key,value) VALUES('active_generation',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(s.generation),db().prepare("INSERT INTO settings(key,value) VALUES('updated_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(stamp)]);
+    s.done=true;
    }}else if(!items.length)throw new Error('공공 API에서 일부 페이지가 비어 있습니다. 전체 갱신은 완료되지 않았습니다.');
-   await put('sync',JSON.stringify(s));return json(s);
+   if(s.done){
+    // Fail the whole batch if total unique IDs differ. No partial page or active-generation flip survives.
+    statements.push(db().prepare("INSERT INTO settings(key,value) SELECT 'sync_validation',NULL WHERE (SELECT COUNT(*) FROM institutions WHERE generation=?)<>?").bind(s.generation,s.pharmacyTotal+s.total));
+    statements.push(db().prepare("INSERT INTO settings(key,value) VALUES('active_generation',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(s.generation));
+    statements.push(db().prepare("INSERT INTO settings(key,value) VALUES('updated_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(s.updatedAt));
+   }
+   statements.push(db().prepare("INSERT INTO settings(key,value) VALUES('sync',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify(s)));
+   await db().batch(statements);
+   return json(s);
   }finally{await put('sync_lock','0');}
  }
  if(p.action==='reset-sync'){await put('sync','null');return json({ok:true});}
