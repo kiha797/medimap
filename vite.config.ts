@@ -5,8 +5,8 @@ import { readExecutionProfile } from "./scripts/execution-profile.mjs";
 import { sites } from "./build/sites-vite-plugin";
 import { connectorPreview } from "./build/connector-preview-plugin.mjs";
 
-const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
-  "00000000-0000-4000-8000-000000000000";
+// Standalone Cloudflare deployment. Sites supplies its own hosted binding.
+const MEDIMAP_DATABASE_ID = "f5976efb-55e6-4b49-a535-408373fab2e4";
 
 const { d1, r2 } = hostingConfig;
 
@@ -21,8 +21,8 @@ const localBindingConfig = {
     ? [
         {
           binding: d1,
-          database_name: "site-creator-d1",
-          database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
+          database_name: "medimap-db",
+          database_id: MEDIMAP_DATABASE_ID,
         },
       ]
     : [],

@@ -1,0 +1,12 @@
+{
+  "name": "medimap",
+  "compatibility_date": "2026-05-15",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "medimap-db",
+      "database_id": "f5976efb-55e6-4b49-a535-408373fab2e4",
+      "migrations_dir": "drizzle"
+    }
+  ]
+}
