@@ -29,6 +29,13 @@
       "when": 1791522521045,
       "tag": "0003_broad_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791548875106,
+      "tag": "0004_redundant_morlocks",
+      "breakpoints": true
     }
   ]
 }
