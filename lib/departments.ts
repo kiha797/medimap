@@ -1,0 +1,7 @@
+// HIRA 진료과목코드 TBOMA610. 기관 종별과 독립된 복수 진료과목이다.
+// https://opendata.hira.or.kr/op/opc/selectColumnCodeList.do?tblId=TBOMA610
+// Remaining 한방 codes: same official code catalog, unfiltered pageIndex=9. 소계 codes are not individual departments.
+const medical=['일반의','내과','신경과','정신건강의학과','외과','정형외과','신경외과','심장혈관흉부외과','성형외과','마취통증의학과','산부인과','소아청소년과','안과','이비인후과','피부과','비뇨의학과','영상의학과','방사선종양학과','병리과','진단검사의학과','결핵과','재활의학과','핵의학과','가정의학과','응급의학과','직업환경의학과','예방의학과'];
+export const DEPARTMENTS=[...medical.map((name,i)=>({code:String(i).padStart(2,'0'),name,group:'의과'})),...['치과','구강악안면외과','치과보철과','치과교정과','소아치과','치주과','치과보존과','구강내과','영상치의학과','구강병리과','예방치과'].map((name,i)=>({code:String(i+49),name,group:'치과'})),{code:'61',name:'통합치의학과',group:'치과'},...['한방내과','한방부인과','한방소아과','한방안·이비인후·피부과','한방신경정신과','침구과','한방재활의학과','사상체질과','한방응급','한방응급 (코드 89)'].map((name,i)=>({code:String(i+80),name,group:'한방'})),...Object.entries({'27':'기타1(치과)','28':'기타4(한방)','31':'기타2','40':'기타2(2)','41':'보건','42':'기타3','43':'보건기관치과','44':'보건기관한방'}).map(([code,name])=>({code,name,group:'기타·보건'}))];
+export function departmentName(code:string){return DEPARTMENTS.find(x=>x.code===code)?.name||'';}
+export function departmentFilter(snapshot:string,code:string){return {sql:' AND EXISTS (SELECT 1 FROM institution_departments d WHERE d.generation=i.generation AND d.institution_id=i.id AND d.code=? AND d.snapshot=?)',args:[code,snapshot]};}

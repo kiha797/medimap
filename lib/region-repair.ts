@@ -1,0 +1,6 @@
+import {db,setting} from './database';
+import {GWANGJU_DISTRICTS,JEONNAM_DISTRICTS,MERGED_REGION_NAMES} from './medical';
+const quote=(s:string)=>"'"+s.replace(/'/g,"''")+"'";
+function districtCondition(districts:string[],prefix:string){const names=districts.flatMap(d=>[d,prefix+d,'전남광주'+prefix+d,'광주전남'+prefix+d]);const address=MERGED_REGION_NAMES.flatMap(region=>districts.map(d=>`trim(address) LIKE ${quote(region+' '+d+' %')}`));return `(replace(trim(sigungu),' ','') IN (${names.map(quote).join(',')}) OR ${address.join(' OR ')})`;}
+export const mergedRegionRepairSQL=`UPDATE institutions SET sido=CASE WHEN ${districtCondition(GWANGJU_DISTRICTS,'광주')} THEN '광주광역시' WHEN ${districtCondition(JEONNAM_DISTRICTS,'전남')} THEN '전라남도' ELSE sido END WHERE (trim(sido) IN (${MERGED_REGION_NAMES.map(quote).join(',')}) OR ${MERGED_REGION_NAMES.map(region=>`trim(address) LIKE ${quote(region+' %')}`).join(' OR ')})`;
+export async function repairMergedRegions(){if(await setting('merged_region_repair_v1'))return;await db().batch([db().prepare(mergedRegionRepairSQL),db().prepare("INSERT INTO settings(key,value) VALUES('merged_region_repair_v1',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(new Date().toISOString())]);}

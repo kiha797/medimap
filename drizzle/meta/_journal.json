@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1791504839689,
+      "tag": "0000_huge_mariko_yashida",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791511573664,
+      "tag": "0001_flawless_black_panther",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791516059926,
+      "tag": "0002_normalize_region_addresses",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791522521045,
+      "tag": "0003_broad_tarantula",
+      "breakpoints": true
+    }
+  ]
+}
